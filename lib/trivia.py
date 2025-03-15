@@ -79,8 +79,8 @@ class TriviaSession:
 
         embed = question.get_embed()
 
-        await self.channel.send(embed=embed)
         await self.unlock_channel()
+        await self.channel.send(embed=embed)
 
     async def start(self, channel: discord.TextChannel):
         self.channel = channel
@@ -231,7 +231,15 @@ Please select a channel to start the trivia in.
 
         if self.session.is_answer_correct(message.content):
             await message.add_reaction("✅")
-            await message.reply("Correct!")
+            await message.reply(
+                f"Correct! You have won `{self.session.get_current_question().Reward}`!"
+            )
+
+            assert self.initial_message is not None
+
+            await self.initial_message.reply(
+                f"Winner of {self.session.get_current_question().Reward}: {message.author.mention}\n\nWinning message: {message.jump_url}"
+            )
 
             if self.session.has_next_question():
                 self.session.wait_and_continue()
@@ -241,7 +249,6 @@ Please select a channel to start the trivia in.
             self.session = None
             self.channel_id = None
 
-            assert self.initial_message is not None
             await self.initial_message.reply("Trivia session complete!")
 
             self.initial_message = None

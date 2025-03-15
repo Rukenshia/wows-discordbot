@@ -12,6 +12,7 @@ from parse import parse
 
 from lib.auth import can_run_bot_commands
 from lib.components.channel_dropdown import ChannelDropdown
+from lib.embeds import error, success
 
 
 @dataclass
@@ -22,10 +23,10 @@ class TriviaQuestion:
 
     def get_embed(self):
         return discord.Embed(
-            title="Trivia Question",
+            title="🎮 Trivia Challenge",
             description=self.Question,
-            color=discord.Color.green(),
-        )
+            color=discord.Color.blue(),
+        ).set_footer(text="Be the first to answer correctly!")
 
 
 class TriviaSession:
@@ -79,17 +80,31 @@ class TriviaSession:
             return
 
         question = self.get_current_question()
-
         embed = question.get_embed()
 
         await self.unlock_channel()
-        await self.channel.send(embed=embed)
+
+        # Send question number info along with the embed
+        await self.channel.send(
+            f"**Question {self.current_question + 1}/{len(self.questions)}**",
+            embed=embed,
+        )
 
     async def start(self, channel: discord.TextChannel):
         self.channel = channel
         self.active = True
 
-        await self.post_question()
+        next_ts = round(arrow.utcnow().shift(minutes=self.time_between).timestamp())
+
+        # Send a welcome message
+        welcome_embed = discord.Embed(
+            title="🎯 Trivia Session beginning soon",
+            description=f"The first question will be available <t:{next_ts}:R>",
+            color=discord.Color.gold(),
+        )
+        await self.channel.send(embed=welcome_embed)
+
+        self.wait_and_continue()
 
     async def wait_and_continue_task(self):
         if not self.active:
@@ -99,9 +114,13 @@ class TriviaSession:
 
         next_ts = round(arrow.utcnow().shift(minutes=self.time_between).timestamp())
 
-        self.next_question_message = await self.channel.send(
-            f"\n⌛ **The next question will be available in <t:{next_ts}:R>**"
+        waiting_embed = discord.Embed(
+            title="⏳ Next Question Coming Soon",
+            description=f"The next question will be available <t:{next_ts}:R>",
+            color=discord.Color.purple(),
         )
+
+        self.next_question_message = await self.channel.send(embed=waiting_embed)
 
         await self.lock_channel()
         await asyncio.sleep(self.time_between * 60)
@@ -159,19 +178,24 @@ class Trivia(commands.Cog):
     @commands.check(can_run_bot_commands)
     async def trivia(self, ctx: commands.Context, *, time_between_questions: str):
         if self.active:
-            await ctx.send("Trivia is already active!")
+            await ctx.send(embed=error("Trivia is already active"))
             return
 
         parts = parse("{:d}m", time_between_questions)
 
         if parts is None:
-            await ctx.send("Invalid time format. Please use `Xm`.")
+            await ctx.send(
+                embed=error(
+                    "Invalid time format. Please use `Xm` (e.g. `5m` for 5 minutes).",
+                    title="Invalid Format",
+                )
+            )
             return
 
         time_between = cast(int, parts[0])
 
         if len(ctx.message.attachments) == 0:
-            await ctx.send("Please attach a trivia file!")
+            await ctx.send(embed=error("Please attach a trivia CSV file!"))
             return
 
         try:
@@ -180,7 +204,9 @@ class Trivia(commands.Cog):
                 self.bot, self.load_trivia_csv(data), time_between
             )
         except Exception as e:
-            await ctx.send(f"Error loading trivia: {e}")
+            await ctx.send(
+                embed=error(f"An error occurred while loading the trivia: {e}")
+            )
             return
 
         assert ctx.guild is not None
@@ -190,29 +216,33 @@ class Trivia(commands.Cog):
             callback=self.on_channel_select,
         )
 
+        stats_embed = discord.Embed(
+            title="📊 Trivia Stats",
+            description=f"• **Questions:** {len(self.session.questions)}\n• **Time Between:** {time_between} minutes",
+            color=discord.Color.blue(),
+        )
+
+        questions_preview = "\n".join(
+            f"{i + 1}. {q.Question}"
+            for i, q in enumerate(self.session.questions[:5])  # Show first 5 questions
+        )
+        if len(self.session.questions) > 5:
+            questions_preview += f"\n... and {len(self.session.questions) - 5} more"
+
+        questions_embed = discord.Embed(
+            title="📝 Question Preview",
+            description=questions_preview,
+            color=discord.Color.gold(),
+        )
+
         await ctx.send(
-            f"""✅ **Trivia file loaded successfully.**
-Please select a channel to start the trivia in.
-            """,
-            embeds=[
-                discord.Embed(
-                    title="CSV Stats",
-                    description=f"{len(self.session.questions)} questions",
-                ),
-                discord.Embed(
-                    title="Trivia Questions",
-                    description="\n".join(
-                        f"{i + 1}. {q.Question}"
-                        for i, q in enumerate(self.session.questions)
-                    ),
-                ),
-                discord.Embed(
-                    title="Time Between Questions",
-                    description=f"{time_between} minutes",
-                ),
-            ],
+            embed=success(
+                "Please select a channel to start the trivia.",
+                title="Trivia CSV loaded",
+            ),
             view=channel_select,
         )
+        await ctx.send(embeds=[stats_embed, questions_embed])
 
     async def on_channel_select(
         self, interaction: discord.Interaction, channel: discord.TextChannel
@@ -224,9 +254,12 @@ Please select a channel to start the trivia in.
         self.active = True
         self.initial_message = interaction.message
 
-        await interaction.response.send_message(
-            f"Starting trivia in {channel.mention}!",
+        start_embed = discord.Embed(
+            title="🚀 Trivia Starting",
+            description=f"Trivia session is starting in {channel.mention}!",
+            color=discord.Color.green(),
         )
+        await interaction.response.send_message(embed=start_embed)
 
         await self.session.start(channel)
 
@@ -246,15 +279,40 @@ Please select a channel to start the trivia in.
 
         if self.session.is_answer_correct(message.content):
             await message.add_reaction("✅")
-            await message.reply(
-                f"Correct! You have won `{self.session.get_current_question().Reward}`!"
+
+            current_question = self.session.get_current_question()
+
+            winner_embed = discord.Embed(
+                title="🎉 Correct Answer!",
+                description=f"Congratulations {message.author.mention}!",
+                color=discord.Color.green(),
             )
+            winner_embed.add_field(
+                name="Prize", value=f"**{current_question.Reward}**", inline=False
+            )
+
+            await message.reply(embed=winner_embed)
 
             assert self.initial_message is not None
 
-            await self.initial_message.reply(
-                f"Winner of {self.session.get_current_question().Reward}: {message.author.mention}\n\n{message.jump_url}"
+            admin_winner_embed = discord.Embed(
+                title="🏆 Winner Notification",
+                description=f"**Prize:** {current_question.Reward}\n**Winner:** {message.author.mention}",
+                color=discord.Color.gold(),
             )
+            admin_winner_embed.add_field(
+                name="Question", value=current_question.Question, inline=False
+            )
+            admin_winner_embed.add_field(
+                name="Answer", value=current_question.Answer, inline=False
+            )
+            admin_winner_embed.add_field(
+                name="Link",
+                value=f"[Jump to message]({message.jump_url})",
+                inline=False,
+            )
+
+            await self.initial_message.reply(embed=admin_winner_embed)
 
             if self.session.has_next_question():
                 self.session.wait_and_continue()
@@ -264,7 +322,12 @@ Please select a channel to start the trivia in.
             self.session = None
             self.channel_id = None
 
-            await self.initial_message.reply("Trivia session complete!")
+            complete_embed = discord.Embed(
+                title="🎊 Trivia Session Complete",
+                description="All questions have been answered! Thanks for playing!",
+                color=discord.Color.green(),
+            )
+            await self.initial_message.reply(embed=complete_embed)
 
             self.initial_message = None
 

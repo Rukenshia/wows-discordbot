@@ -114,13 +114,14 @@ class TriviaSession:
 
         next_ts = round(arrow.utcnow().shift(minutes=self.time_between).timestamp())
 
-        waiting_embed = discord.Embed(
-            title="⏳ Next Question Coming Soon",
-            description=f"The next question will be available <t:{next_ts}:R>",
-            color=discord.Color.purple(),
-        )
+        if self.current_question > 0:
+            waiting_embed = discord.Embed(
+                title="⏳ Next Question Coming Soon",
+                description=f"The next question will be available <t:{next_ts}:R>",
+                color=discord.Color.purple(),
+            )
 
-        self.next_question_message = await self.channel.send(embed=waiting_embed)
+            self.next_question_message = await self.channel.send(embed=waiting_embed)
 
         await self.lock_channel()
         await asyncio.sleep(self.time_between * 60)
@@ -128,9 +129,9 @@ class TriviaSession:
         if not self.active:
             return
 
-        self.next_question()
-
-        await self.next_question_message.delete()
+        if self.next_question_message:
+            await self.next_question_message.delete()
+            self.next_question_message = None
 
         await self.post_question()
 
@@ -147,6 +148,7 @@ class Trivia(commands.Cog):
     session: Optional[TriviaSession]
     initial_message: Optional[discord.Message]
     next_question_message: Optional[discord.Message]
+    winners_thread: Optional[discord.Thread]
 
     def __init__(self, bot):
         self.bot = bot
@@ -157,6 +159,7 @@ class Trivia(commands.Cog):
         self.session = None
         self.initial_message = None
         self.next_question_message = None
+        self.winners_thread = None
 
     def load_trivia_csv(self, data: bytes):
         trivia = []
@@ -236,13 +239,16 @@ class Trivia(commands.Cog):
         )
 
         await ctx.send(
-            embed=success(
-                "Please select a channel to start the trivia.",
-                title="Trivia CSV loaded",
-            ),
+            embeds=[
+                stats_embed,
+                questions_embed,
+                success(
+                    "Please select a channel to start the trivia.",
+                    title="Trivia CSV loaded",
+                ),
+            ],
             view=channel_select,
         )
-        await ctx.send(embeds=[stats_embed, questions_embed])
 
     async def on_channel_select(
         self, interaction: discord.Interaction, channel: discord.TextChannel
@@ -259,7 +265,18 @@ class Trivia(commands.Cog):
             description=f"Trivia session is starting in {channel.mention}!",
             color=discord.Color.green(),
         )
-        await interaction.response.send_message(embed=start_embed)
+        message = await interaction.response.send_message(embed=start_embed)
+
+        assert interaction.channel is not None
+        assert message.message_id is not None
+
+        # retrieve message to create thread
+        message = await interaction.channel.fetch_message(message.message_id)
+
+        self.winners_thread = await message.create_thread(
+            name="Trivia Winners",
+            auto_archive_duration=1440,  # 24 hours
+        )
 
         await self.session.start(channel)
 
@@ -293,7 +310,7 @@ class Trivia(commands.Cog):
 
             await message.reply(embed=winner_embed)
 
-            assert self.initial_message is not None
+            assert self.winners_thread is not None
 
             admin_winner_embed = discord.Embed(
                 title="🏆 Winner Notification",
@@ -312,24 +329,35 @@ class Trivia(commands.Cog):
                 inline=False,
             )
 
-            await self.initial_message.reply(embed=admin_winner_embed)
+            await self.winners_thread.send(embed=admin_winner_embed)
 
             if self.session.has_next_question():
+                self.session.next_question()
                 self.session.wait_and_continue()
                 return
-
-            self.active = False
-            self.session = None
-            self.channel_id = None
 
             complete_embed = discord.Embed(
                 title="🎊 Trivia Session Complete",
                 description="All questions have been answered! Thanks for playing!",
                 color=discord.Color.green(),
             )
+
+            await message.channel.send(embed=complete_embed)
+
+            # Send completion message to the thread
+            assert self.winners_thread is not None
+            await self.winners_thread.send(embed=complete_embed)
+
+            # Also notify in the original channel
+            assert self.initial_message is not None
             await self.initial_message.reply(embed=complete_embed)
 
+            self.active = False
+            self.session = None
+            self.channel_id = None
+
             self.initial_message = None
+            self.winners_thread = None
 
 
 async def setup(bot):

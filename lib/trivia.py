@@ -46,6 +46,7 @@ class TriviaSession:
         self.questions = questions
         self.current_question = 0
         self.time_between = time_between
+        self.next_question_message: Optional[discord.Message] = None
 
     def get_current_question(self):
         return self.questions[self.current_question]
@@ -94,6 +95,14 @@ class TriviaSession:
         if not self.active:
             return
 
+        assert self.channel is not None
+
+        next_ts = round(arrow.utcnow().shift(minutes=self.time_between).timestamp())
+
+        self.next_question_message = await self.channel.send(
+            f"\n⌛ **The next question will be available in <t:{next_ts}:R>**"
+        )
+
         await self.lock_channel()
         await asyncio.sleep(self.time_between * 60)
 
@@ -101,6 +110,8 @@ class TriviaSession:
             return
 
         self.next_question()
+
+        await self.next_question_message.delete()
 
         await self.post_question()
 
@@ -116,6 +127,7 @@ class Trivia(commands.Cog):
 
     session: Optional[TriviaSession]
     initial_message: Optional[discord.Message]
+    next_question_message: Optional[discord.Message]
 
     def __init__(self, bot):
         self.bot = bot
@@ -125,6 +137,7 @@ class Trivia(commands.Cog):
 
         self.session = None
         self.initial_message = None
+        self.next_question_message = None
 
     def load_trivia_csv(self, data: bytes):
         trivia = []
@@ -235,14 +248,6 @@ Please select a channel to start the trivia in.
             await message.add_reaction("✅")
             await message.reply(
                 f"Correct! You have won `{self.session.get_current_question().Reward}`!"
-            )
-
-            next_ts = round(
-                arrow.utcnow().shift(minutes=self.session.time_between).timestamp()
-            )
-
-            await message.channel.send(
-                f"\n⌛ **The next question will be available in <t:{next_ts}:R>**"
             )
 
             assert self.initial_message is not None

@@ -1,9 +1,11 @@
 import asyncio
 import csv
 import io
+import math
 from dataclasses import dataclass
 from typing import Optional, cast
 
+import arrow
 import discord
 from discord.ext import commands, tasks
 from parse import parse
@@ -235,10 +237,18 @@ Please select a channel to start the trivia in.
                 f"Correct! You have won `{self.session.get_current_question().Reward}`!"
             )
 
+            next_ts = round(
+                arrow.utcnow().shift(minutes=self.session.time_between).timestamp()
+            )
+
+            await message.channel.send(
+                f"\n⌛ **The next question will be available in <t:{next_ts}:R>**"
+            )
+
             assert self.initial_message is not None
 
             await self.initial_message.reply(
-                f"Winner of {self.session.get_current_question().Reward}: {message.author.mention}\n\nWinning message: {message.jump_url}"
+                f"Winner of {self.session.get_current_question().Reward}: {message.author.mention}\n\n{message.jump_url}"
             )
 
             if self.session.has_next_question():

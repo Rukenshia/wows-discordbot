@@ -14,15 +14,18 @@ from discord.ui import Button, Select, TextInput, View
 class StartKeepChannelAliveView(View):
     def __init__(
         self,
+        reward: str,
         channels: list[discord.TextChannel],
         callback: Callable[
-            [discord.Interaction, discord.TextChannel],
+            [discord.Interaction, discord.TextChannel, str],
             Awaitable[None],
         ],
         placeholder: str = "Select a channel for the message train",
         timeout: float = 180.0,
     ):
         super().__init__(timeout=timeout)
+
+        self.reward = reward
 
         # Create the dropdown menu
         self.dropdown = Select(
@@ -66,16 +69,21 @@ class StartKeepChannelAliveView(View):
 
     async def on_confirm(self, interaction: discord.Interaction):
         """Called when a user clicks the confirm button."""
-        assert self.selected_channel is not None
+
+        if self.selected_channel is None:
+            await interaction.response.send_message(
+                "Please select a channel first",
+                ephemeral=True,
+            )
+            return
+
         assert interaction.message is not None
 
         # disable the button
         self.confirm.disabled = True
 
-        await interaction.followup.edit_message(
-            message_id=interaction.message.id, view=self
-        )
+        await interaction.response.edit_message(view=self)
 
-        await self.external_callback(interaction, self.selected_channel)
+        await self.external_callback(interaction, self.selected_channel, self.reward)
 
         self.stop()

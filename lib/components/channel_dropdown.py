@@ -47,7 +47,11 @@ class ChannelDropdown(View):
         channel_id = int(self.dropdown.values[0])
         self.selected_channel = interaction.guild.get_channel(channel_id)
 
-        await interaction.response.defer(ephemeral=True)
+        if self.selected_channel is None:
+            await interaction.response.send_message(
+                "An error occurred while fetching the channel.", ephemeral=True
+            )
+            return
 
         if self.external_callback:
             await self.external_callback(interaction, self.selected_channel)

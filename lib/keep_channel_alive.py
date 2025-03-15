@@ -1,5 +1,6 @@
 import logging
 import math
+import random
 from datetime import datetime
 from typing import List, Optional, cast
 
@@ -17,8 +18,10 @@ reminders = [
         DURATION / 2,
         "You are at risk of losing your reward of {reward}. Send a message to keep it alive",
     ),
-    (DURATION, "You have lost your reward of {reward}. Please start a new one"),
 ]
+
+MemberId = int
+MessageCount = int
 
 
 class KeepChannelAlive(commands.Cog):
@@ -30,6 +33,7 @@ class KeepChannelAlive(commands.Cog):
     last_message: Optional[datetime]
     started_at: Optional[datetime]
     last_reminder: Optional[int]
+    participants: dict[MemberId, MessageCount]
 
     status_message: Optional[discord.Message]
 
@@ -47,6 +51,7 @@ class KeepChannelAlive(commands.Cog):
         self.keep_alive.stop()
         self.last_reminder = None
         self.status_message = None
+        self.participants = {}
 
     def progress(self):
         if not self.active:
@@ -111,7 +116,7 @@ class KeepChannelAlive(commands.Cog):
         elapsed = (datetime.now() - self.last_message).total_seconds()
 
         await message.edit(
-            content=f"**Active Reward**: {self.reward}\n\n{self.progress()}\n\n⌛ You have **{math.trunc(DURATION - elapsed)} seconds** to send a message to keep the reward alive"
+            content=f"**Active Reward**: {self.reward}\n**Participants**: {len(self.participants.keys())}\n\n{self.progress()}\n\n⌛ You have **{math.trunc(DURATION - elapsed)} seconds** to send a message to keep the reward alive"
         )
 
     @commands.command()
@@ -128,15 +133,14 @@ class KeepChannelAlive(commands.Cog):
         self,
         interaction: discord.Interaction,
         target_channel: discord.TextChannel,
+        reward: str,
     ):
-        await interaction.response.defer(ephemeral=True)
-
         if self.active:
             return
 
         self.active = True
         self.channel_id = target_channel.id
-        self.reward = self.reward
+        self.reward = reward
         self.last_message = datetime.now()
         self.started_at = datetime.now()
         self.keep_alive.start()
@@ -146,7 +150,7 @@ class KeepChannelAlive(commands.Cog):
         await self.update_status_message()
 
     @commands.command()
-    async def start(self, ctx: commands.Context, *reward: str):
+    async def start(self, ctx: commands.Context, *rewards: str):
         # ensure we're in a text channel
         if ctx.channel.type != discord.ChannelType.text:
             logging.warning(
@@ -160,11 +164,11 @@ class KeepChannelAlive(commands.Cog):
             await ctx.reply("Already active")
             return
 
-        if not reward:
+        if not rewards:
             await ctx.reply("Please provide a reward")
             return
 
-        self.reward = " ".join(reward)
+        reward = " ".join(rewards)
 
         # Show a dropdown to select a channel
         channels: List[discord.TextChannel] = [
@@ -178,14 +182,16 @@ class KeepChannelAlive(commands.Cog):
             return
 
         view = StartKeepChannelAliveView(
+            reward=reward,
             channels=channels,
             callback=self.on_start,
             timeout=180.0,
         )
 
-        print(view.to_components())
-
-        await ctx.reply("Select a target channel:", view=view)
+        await ctx.reply(
+            f"Starting a new Message Train with the following reward:\n```{reward}\n```\n\nSelect a target channel:",
+            view=view,
+        )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -198,7 +204,14 @@ class KeepChannelAlive(commands.Cog):
         if message.author.bot:
             return
 
+        if message.author.id not in self.participants:
+            self.participants[message.author.id] = 0
+        self.participants[message.author.id] += 1
+
         logger.info("staying alive with new message")
+
+        # restart so that we stay on the 5-second interval
+        self.keep_alive.restart()
         self.last_message = datetime.now()
         self.last_reminder = None
         await self.update_status_message()
@@ -238,8 +251,34 @@ class KeepChannelAlive(commands.Cog):
             self.last_reminder = relevant_reminder[0]
 
         if (datetime.now() - self.last_message).total_seconds() > 60:
+            await self.distribute_reward()
+
             self.reset()
             return
+
+    async def distribute_reward(self):
+        if self.channel_id is None:
+            return
+
+        channel = cast(
+            Optional[discord.TextChannel], self.bot.get_channel(self.channel_id)
+        )
+        assert channel is not None
+
+        participants = list(self.participants.keys())
+
+        if not participants:
+            return
+
+        winner = await self.bot.fetch_user(random.choice(participants))
+
+        if winner is None:
+            await channel.send(f"😔 No winner could be determined")
+            return
+
+        await channel.send(
+            f"🎉 Congratulations <@{winner.id}>! You have won the reward of {self.reward}"
+        )
 
 
 async def setup(bot: commands.Bot):

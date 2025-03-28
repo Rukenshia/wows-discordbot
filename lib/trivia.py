@@ -179,7 +179,7 @@ class Trivia(commands.Cog):
 
     @commands.command()
     @commands.check(can_run_bot_commands)
-    async def trivia(self, ctx: commands.Context, *, time_between_questions: str):
+    async def start_trivia(self, ctx: commands.Context, *, time_between_questions: str):
         if self.active:
             await ctx.send(embed=error("Trivia is already active"))
             return

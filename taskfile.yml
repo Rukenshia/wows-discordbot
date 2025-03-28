@@ -1,0 +1,19 @@
+version: '3'
+
+vars:
+  SENTRY_RELEASE:
+    sh: echo "$(git rev-parse --short HEAD)-$(date +%s)"
+  SENTRY_ORG: chrstphrsn
+  SENTRY_PROJECT: wows-discordbot
+
+tasks:
+  deploy:
+    description: Deploy application to fly.io
+    env:
+      SENTRY_ORG: "{{ .SENTRY_ORG }}"
+      SENTRY_PROJECT: "{{ .SENTRY_PROJECT }}"
+    cmds:
+      - fly deploy --build-arg SENTRY_RELEASE={{ .SENTRY_RELEASE }}
+      - sentry-cli releases new "{{ .SENTRY_RELEASE }}"
+      - sentry-cli releases set-commits "{{ .SENTRY_RELEASE }}" --auto
+      - sentry-cli releases finalize "{{ .SENTRY_RELEASE }}"

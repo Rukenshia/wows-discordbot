@@ -7,6 +7,7 @@ from typing import List, Optional, cast
 import discord
 from discord.ext import commands, tasks
 
+from lib.embeds import error
 from lib.views.start_keep_alive import StartKeepChannelAliveView
 
 logger = logging.getLogger(__name__)
@@ -176,12 +177,7 @@ class KeepChannelAlive(commands.Cog):
     @commands.command()
     async def cancel(self, ctx: commands.Context):
         if not self.active:
-            cancel_embed = discord.Embed(
-                title="❌ Error",
-                description="No active message train challenge to cancel.",
-                color=discord.Color.red(),
-            )
-            await ctx.reply(embed=cancel_embed)
+            await ctx.reply(embed=error("No active message train challenge to cancel."))
             return
 
         self.reset()
@@ -233,7 +229,7 @@ class KeepChannelAlive(commands.Cog):
         await self.update_status_message()
 
     @commands.command()
-    async def start(self, ctx: commands.Context, *rewards: str):
+    async def start_keep_alive(self, ctx: commands.Context, *rewards: str):
         # ensure we're in a text channel
         if ctx.channel.type != discord.ChannelType.text:
             logging.warning(
@@ -253,15 +249,14 @@ class KeepChannelAlive(commands.Cog):
             return
 
         if not rewards:
-            no_reward_embed = discord.Embed(
-                title="❌ Missing Reward",
-                description="Please provide a reward for the message train challenge.",
-                color=discord.Color.red(),
+            await ctx.reply(
+                embed=error(
+                    "Please provide a reward for the message train challenge.",
+                    title="Missing Reward",
+                ).add_field(
+                    name="Usage", value="!start [reward description]", inline=False
+                )
             )
-            no_reward_embed.add_field(
-                name="Usage", value="!start [reward description]", inline=False
-            )
-            await ctx.reply(embed=no_reward_embed)
             return
 
         reward = " ".join(rewards)
@@ -274,12 +269,12 @@ class KeepChannelAlive(commands.Cog):
         ]
 
         if not channels:
-            no_channels_embed = discord.Embed(
-                title="❌ No Channels Available",
-                description="No channels available to send messages to.",
-                color=discord.Color.red(),
+            await ctx.reply(
+                embed=error(
+                    "No channels available to send messages to.",
+                    title="No Channels Available",
+                )
             )
-            await ctx.reply(embed=no_channels_embed)
             return
 
         view = StartKeepChannelAliveView(
@@ -414,12 +409,7 @@ class KeepChannelAlive(commands.Cog):
         winner = await self.bot.fetch_user(winner_id)
 
         if winner is None:
-            error_embed = discord.Embed(
-                title="❌ Error",
-                description="No winner could be determined",
-                color=discord.Color.red(),
-            )
-            await channel.send(embed=error_embed)
+            await channel.send(embed=error("No winner could be determined"))
             return
 
         # Create a list of all participants

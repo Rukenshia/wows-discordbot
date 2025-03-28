@@ -1,0 +1,23 @@
+# fly.toml app configuration file generated for wows-discordbot on 2025-03-28T13:56:12+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = "wows-discordbot"
+primary_region = "fra"
+kill_signal = "SIGINT"
+kill_timeout = 5
+processes = []
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[experimental]
+  auto_rollback = true
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'

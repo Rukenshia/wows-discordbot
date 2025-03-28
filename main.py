@@ -20,7 +20,7 @@ sentry_sdk.init(
     profiles_sample_rate=1.0,
 )
 
-print(f"Starting with sentry release {os.getenv('SENTRY_RELEASE')}")
+sentry_sdk.capture_message(message=f"Bot started", level="info")
 
 import config
 

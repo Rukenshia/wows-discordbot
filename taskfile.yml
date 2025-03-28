@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   SENTRY_RELEASE:
-    sh: echo "$(git rev-parse --short HEAD)-$(date +%s)"
+    sh: sentry-cli releases propose-version
   SENTRY_ORG: chrstphrsn
   SENTRY_PROJECT: wows-discordbot
 

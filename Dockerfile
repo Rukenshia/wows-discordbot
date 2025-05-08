@@ -20,5 +20,10 @@ ENV SENTRY_RELEASE=$SENTRY_RELEASE
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
+# Copy Tailscale binaries from the tailscale image on Docker Hub.
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscaled /app/tailscaled
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale /app/tailscale
+RUN mkdir -p /var/run/tailscale /var/cache/tailscale /var/lib/tailscale
+
 # Run the bot
-CMD ["python", "main.py"]
+CMD ["/app/start.sh"]

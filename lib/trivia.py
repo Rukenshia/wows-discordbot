@@ -1,14 +1,13 @@
 import asyncio
 import csv
 import io
-import math
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import cast
 
 import arrow
 import discord
-from discord.ext import commands, tasks
-from parse import parse
+from discord.ext import commands
+from parse import Result, parse  # pyright: ignore[reportUnknownVariableType]
 
 from lib.auth import can_run_bot_commands
 from lib.components.channel_dropdown import ChannelDropdown
@@ -30,6 +29,14 @@ class TriviaQuestion:
 
 
 class TriviaSession:
+    active: bool
+    channel: discord.TextChannel | None
+    bot: commands.Bot
+    questions: list[TriviaQuestion]
+    current_question: int
+    time_between: int
+    next_question_message: discord.Message | None
+
     def __init__(
         self, bot: commands.Bot, questions: list[TriviaQuestion], time_between: int
     ):
@@ -42,23 +49,23 @@ class TriviaSession:
         """
 
         self.active = False
-        self.channel: Optional[discord.TextChannel] = None
+        self.channel = None
         self.bot = bot
         self.questions = questions
         self.current_question = 0
         self.time_between = time_between
-        self.next_question_message: Optional[discord.Message] = None
+        self.next_question_message = None
 
-    def get_current_question(self):
+    def get_current_question(self) -> TriviaQuestion:
         return self.questions[self.current_question]
 
-    def has_next_question(self):
+    def has_next_question(self) -> bool:
         return self.current_question + 1 < len(self.questions)
 
-    def next_question(self):
+    def next_question(self) -> None:
         self.current_question += 1
 
-    def is_answer_correct(self, answer: str):
+    def is_answer_correct(self, answer: str) -> bool:
         return answer.lower() == self.get_current_question().Answer.lower()
 
     async def lock_channel(self):
@@ -85,7 +92,7 @@ class TriviaSession:
         await self.unlock_channel()
 
         # Send question number info along with the embed
-        await self.channel.send(
+        _ = await self.channel.send(
             f"**Question {self.current_question + 1}/{len(self.questions)}**",
             embed=embed,
         )
@@ -102,7 +109,7 @@ class TriviaSession:
             description=f"The first question will be available <t:{next_ts}:R>",
             color=discord.Color.gold(),
         )
-        await self.channel.send(embed=welcome_embed)
+        _ = await self.channel.send(embed=welcome_embed)
 
         self.wait_and_continue()
 
@@ -136,33 +143,29 @@ class TriviaSession:
         await self.post_question()
 
     def wait_and_continue(self):
-        asyncio.create_task(self.wait_and_continue_task())
+        _ = asyncio.create_task(self.wait_and_continue_task())
 
 
 class Trivia(commands.Cog):
     bot: commands.Bot
-
     active: bool
-    channel_id: Optional[int]
+    channel_id: int | None
+    session: TriviaSession | None
+    initial_message: discord.Message | None
+    next_question_message: discord.Message | None
+    winners_thread: discord.Thread | None
 
-    session: Optional[TriviaSession]
-    initial_message: Optional[discord.Message]
-    next_question_message: Optional[discord.Message]
-    winners_thread: Optional[discord.Thread]
-
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-
         self.active = False
         self.channel_id = None
-
         self.session = None
         self.initial_message = None
         self.next_question_message = None
         self.winners_thread = None
 
-    def load_trivia_csv(self, data: bytes):
-        trivia = []
+    def load_trivia_csv(self, data: bytes) -> list[TriviaQuestion]:
+        trivia: list[TriviaQuestion] = []
 
         reader = csv.DictReader(io.StringIO(data.decode("utf-8")))
 
@@ -179,15 +182,20 @@ class Trivia(commands.Cog):
 
     @commands.command()
     @commands.check(can_run_bot_commands)
-    async def start_trivia(self, ctx: commands.Context, *, time_between_questions: str):
+    async def start_trivia(
+        self,
+        ctx: commands.Context[commands.Bot],  # type: ignore
+        *,
+        time_between_questions: str,  # type: ignore
+    ) -> None:
         if self.active:
-            await ctx.send(embed=error("Trivia is already active"))
+            _ = await ctx.send(embed=error("Trivia is already active"))
             return
 
-        parts = parse("{:d}m", time_between_questions)
+        parts = parse("{duration:d}m", time_between_questions)
 
-        if parts is None:
-            await ctx.send(
+        if parts is None or not isinstance(parts, Result) or "duration" not in parts:
+            _ = await ctx.send(
                 embed=error(
                     "Invalid time format. Please use `Xm` (e.g. `5m` for 5 minutes).",
                     title="Invalid Format",
@@ -195,10 +203,10 @@ class Trivia(commands.Cog):
             )
             return
 
-        time_between = cast(int, parts[0])
+        time_between = cast(int, parts["duration"])
 
         if len(ctx.message.attachments) == 0:
-            await ctx.send(embed=error("Please attach a trivia CSV file!"))
+            _ = await ctx.send(embed=error("Please attach a trivia CSV file!"))
             return
 
         try:
@@ -207,7 +215,7 @@ class Trivia(commands.Cog):
                 self.bot, self.load_trivia_csv(data), time_between
             )
         except Exception as e:
-            await ctx.send(
+            _ = await ctx.send(
                 embed=error(f"An error occurred while loading the trivia: {e}")
             )
             return
@@ -238,7 +246,7 @@ class Trivia(commands.Cog):
             color=discord.Color.gold(),
         )
 
-        await ctx.send(
+        _ = await ctx.send(
             embeds=[
                 stats_embed,
                 questions_embed,
@@ -271,7 +279,9 @@ class Trivia(commands.Cog):
         assert message.message_id is not None
 
         # retrieve message to create thread
-        message = await interaction.channel.fetch_message(message.message_id)
+        # Cast to TextChannel since we know it's a text channel from the context
+        channel = cast(discord.TextChannel, interaction.channel)
+        message = await channel.fetch_message(message.message_id)  # type: ignore[attr-defined]
 
         self.winners_thread = await message.create_thread(
             name="Trivia Winners",
@@ -304,11 +314,11 @@ class Trivia(commands.Cog):
                 description=f"Congratulations {message.author.mention}!",
                 color=discord.Color.green(),
             )
-            winner_embed.add_field(
+            _ = winner_embed.add_field(
                 name="Prize", value=f"**{current_question.Reward}**", inline=False
             )
 
-            await message.reply(embed=winner_embed)
+            _ = await message.reply(embed=winner_embed)
 
             assert self.winners_thread is not None
 
@@ -317,19 +327,19 @@ class Trivia(commands.Cog):
                 description=f"**Prize:** {current_question.Reward}\n**Winner:** {message.author.mention}",
                 color=discord.Color.gold(),
             )
-            admin_winner_embed.add_field(
+            _ = admin_winner_embed.add_field(
                 name="Question", value=current_question.Question, inline=False
             )
-            admin_winner_embed.add_field(
+            _ = admin_winner_embed.add_field(
                 name="Answer", value=current_question.Answer, inline=False
             )
-            admin_winner_embed.add_field(
+            _ = admin_winner_embed.add_field(
                 name="Link",
                 value=f"[Jump to message]({message.jump_url})",
                 inline=False,
             )
 
-            await self.winners_thread.send(embed=admin_winner_embed)
+            _ = await self.winners_thread.send(embed=admin_winner_embed)
 
             if self.session.has_next_question():
                 self.session.next_question()
@@ -342,15 +352,15 @@ class Trivia(commands.Cog):
                 color=discord.Color.green(),
             )
 
-            await message.channel.send(embed=complete_embed)
+            _ = await message.channel.send(embed=complete_embed)
 
             # Send completion message to the thread
             assert self.winners_thread is not None
-            await self.winners_thread.send(embed=complete_embed)
+            _ = await self.winners_thread.send(embed=complete_embed)
 
             # Also notify in the original channel
             assert self.initial_message is not None
-            await self.initial_message.reply(embed=complete_embed)
+            _ = await self.initial_message.reply(embed=complete_embed)
 
             self.active = False
             self.session = None
@@ -360,5 +370,5 @@ class Trivia(commands.Cog):
             self.winners_thread = None
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot) -> None:  # type: ignore[misc]
     await bot.add_cog(Trivia(bot))

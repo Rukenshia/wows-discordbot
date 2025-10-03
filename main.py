@@ -1,12 +1,12 @@
 import logging
-import os
+from typing import override
 
 import discord
 import sentry_sdk
-from aiohttp import web
 from discord.ext import commands
+import config
 
-sentry_sdk.init(
+_ = sentry_sdk.init(
     dsn="https://f4940923ec4141ec45110af22b275bf5@o283081.ingest.us.sentry.io/4509056289538048",
     # Add data like request headers and IP for users,
     # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
@@ -20,9 +20,8 @@ sentry_sdk.init(
     profiles_sample_rate=1.0,
 )
 
-sentry_sdk.capture_message(message=f"Bot started", level="info")
+_ = sentry_sdk.capture_message(message="Bot started", level="info")
 
-import config
 
 logging.basicConfig(level=logging.INFO)
 
@@ -34,19 +33,25 @@ TOKEN = config.get_token()
 
 
 class WowsDiscordBot(commands.Bot):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, command_prefix: str, intents: discord.Intents):
+        super().__init__(command_prefix=command_prefix, intents=intents)
 
+    @override
     async def setup_hook(self) -> None:
         # pass configuration
         await self.load_extension("lib.keep_channel_alive")
         await self.load_extension("lib.trivia")
 
     # handle command errors
-    async def on_command_error(self, ctx, error):
+    @override
+    async def on_command_error(
+        self,
+        ctx,  # pyright: ignore[reportUnknownParameterType,reportMissingParameterType]
+        error,  # pyright: ignore[reportUnknownParameterType,reportMissingParameterType]
+    ) -> None:
         if isinstance(error, commands.CommandNotFound):
             return
-        await ctx.reply(f"An error occurred: {error}")
+        _ = await ctx.reply(f"An error occurred: {error}")  # pyright: ignore
 
 
 bot = WowsDiscordBot(command_prefix="!", intents=intents)  # help_command=None)

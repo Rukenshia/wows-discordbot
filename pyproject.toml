@@ -26,3 +26,7 @@ dev = [
 
 [tool.setuptools]
 packages = ["lib", "data"]
+
+[tool.basedpyright]
+reportMissingTypeStubs = false
+reportIgnoreCommentWithoutRule = false

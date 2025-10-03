@@ -1,8 +1,8 @@
 import logging
 import math
 import random
-from datetime import datetime, timedelta
-from typing import List, Optional, cast
+from datetime import datetime
+from typing import cast
 
 import discord
 from discord.ext import commands, tasks
@@ -29,14 +29,14 @@ class KeepChannelAlive(commands.Cog):
     bot: commands.Bot
 
     active: bool
-    channel_id: Optional[int]
+    channel_id: int | None
     reward: str
-    last_message: Optional[datetime]
-    started_at: Optional[datetime]
-    last_reminder: Optional[int]
+    last_message: datetime | None
+    started_at: datetime | None
+    last_reminder: int | None
     participants: dict[MemberId, MessageCount]
 
-    status_message: Optional[discord.Message]
+    status_message: discord.Message | None
 
     def get_duration_text(self):
         """Return a formatted string of how long the challenge has been running"""
@@ -51,7 +51,7 @@ class KeepChannelAlive(commands.Cog):
         else:
             return f"{int(seconds)} seconds"
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
         self.reset()
@@ -67,7 +67,7 @@ class KeepChannelAlive(commands.Cog):
         self.status_message = None
         self.participants = {}
 
-    def get_color_based_on_time(self, remaining_time):
+    def get_color_based_on_time(self, remaining_time: float):
         """Return a color based on the remaining time"""
         if remaining_time > DURATION / 2:
             # More than 50% time remaining - green
@@ -142,42 +142,44 @@ class KeepChannelAlive(commands.Cog):
         remaining_time = max(0, DURATION - elapsed)
 
         # Create a list of participants with their message counts
-        participant_list = []
+        participant_list: list[str] = []
         for user_id, count in self.participants.items():
             participant_list.append(f"<@{user_id}> - {count} messages")
 
         # Create an embed for the status message
         embed = discord.Embed(
             title="🚂 Message Train Challenge",
-            description=f"Keep the conversation going to win the reward!",
+            description="Keep the conversation going to win the reward!",
             color=self.get_color_based_on_time(remaining_time),
         )
 
-        embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
+        _ = embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
 
-        embed.add_field(
+        _ = embed.add_field(
             name="⏱️ Time Remaining",
             value=f"{math.trunc(remaining_time)} seconds",
             inline=True,
         )
 
-        embed.add_field(
+        _ = embed.add_field(
             name="👥 Participants",
             value=f"{len(self.participants.keys())} active",
             inline=True,
         )
 
-        embed.add_field(name="Progress", value=self.progress(), inline=False)
+        _ = embed.add_field(name="Progress", value=self.progress(), inline=False)
 
         # Add a footer with instructions
-        embed.set_footer(text="Send a message to keep the train alive!")
+        _ = embed.set_footer(text="Send a message to keep the train alive!")
 
-        await message.edit(content=None, embed=embed)
+        _ = await message.edit(content=None, embed=embed)
 
     @commands.command()
-    async def cancel(self, ctx: commands.Context):
+    async def cancel(self, ctx: commands.Context[commands.Bot]):
         if not self.active:
-            await ctx.reply(embed=error("No active message train challenge to cancel."))
+            _ = await ctx.reply(
+                embed=error("No active message train challenge to cancel.")
+            )
             return
 
         self.reset()
@@ -187,11 +189,11 @@ class KeepChannelAlive(commands.Cog):
             description="The message train challenge has been cancelled.",
             color=discord.Color.orange(),
         )
-        await ctx.reply(embed=cancel_embed)
+        _ = await ctx.reply(embed=cancel_embed)
 
     async def on_start(
         self,
-        interaction: discord.Interaction,
+        _interaction: discord.Interaction,
         target_channel: discord.TextChannel,
         reward: str,
     ):
@@ -203,7 +205,7 @@ class KeepChannelAlive(commands.Cog):
         self.reward = reward
         self.last_message = datetime.now()
         self.started_at = datetime.now()
-        self.keep_alive.start()
+        _ = self.keep_alive.start()
 
         # Create an initial embed
         initial_embed = discord.Embed(
@@ -211,25 +213,27 @@ class KeepChannelAlive(commands.Cog):
             description="A new message train challenge has begun!",
             color=discord.Color.blue(),
         )
-        initial_embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
-        initial_embed.add_field(
+        _ = initial_embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
+        _ = initial_embed.add_field(
             name="⏱️ Duration",
             value=f"{DURATION} seconds between messages",
             inline=False,
         )
-        initial_embed.add_field(
+        _ = initial_embed.add_field(
             name="📝 Instructions",
             value="Keep sending messages to keep the train alive. If no one sends a message for 60 seconds, the train stops and a random participant wins!",
             inline=False,
         )
-        initial_embed.set_footer(text="Good luck!")
+        _ = initial_embed.set_footer(text="Good luck!")
 
         self.status_message = await target_channel.send(embed=initial_embed)
 
         await self.update_status_message()
 
     @commands.command()
-    async def start_keep_alive(self, ctx: commands.Context, *rewards: str):
+    async def start_keep_alive(
+        self, ctx: commands.Context[commands.Bot], *rewards: str
+    ):
         # ensure we're in a text channel
         if ctx.channel.type != discord.ChannelType.text:
             logging.warning(
@@ -245,11 +249,11 @@ class KeepChannelAlive(commands.Cog):
                 description="A message train challenge is already running.",
                 color=discord.Color.orange(),
             )
-            await ctx.reply(embed=already_active_embed)
+            _ = await ctx.reply(embed=already_active_embed)
             return
 
         if not rewards:
-            await ctx.reply(
+            _ = await ctx.reply(
                 embed=error(
                     "Please provide a reward for the message train challenge.",
                     title="Missing Reward",
@@ -262,14 +266,14 @@ class KeepChannelAlive(commands.Cog):
         reward = " ".join(rewards)
 
         # Show a dropdown to select a channel
-        channels: List[discord.TextChannel] = [
+        channels: list[discord.TextChannel] = [
             ch
-            for ch in ctx.guild.text_channels
-            if ch.permissions_for(ctx.guild.me).send_messages
+            for ch in (ctx.guild.text_channels if ctx.guild else [])
+            if ctx.guild and ch.permissions_for(ctx.guild.me).send_messages
         ]
 
         if not channels:
-            await ctx.reply(
+            _ = await ctx.reply(
                 embed=error(
                     "No channels available to send messages to.",
                     title="No Channels Available",
@@ -290,21 +294,21 @@ class KeepChannelAlive(commands.Cog):
             color=discord.Color.blue(),
         )
 
-        start_embed.add_field(name="🎁 Reward", value=reward, inline=False)
+        _ = start_embed.add_field(name="🎁 Reward", value=reward, inline=False)
 
-        start_embed.add_field(
+        _ = start_embed.add_field(
             name="⏱️ Duration",
             value=f"{DURATION} seconds between messages",
             inline=False,
         )
 
-        start_embed.add_field(
+        _ = start_embed.add_field(
             name="📝 Instructions",
             value="Select a channel below to start the challenge",
             inline=False,
         )
 
-        await ctx.reply(embed=start_embed, view=view)
+        _ = await ctx.reply(embed=start_embed, view=view)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -356,7 +360,7 @@ class KeepChannelAlive(commands.Cog):
             logger.info(f"Sending reminder {relevant_reminder[1]} at {elapsed}")
 
             channel = cast(
-                Optional[discord.TextChannel], self.bot.get_channel(self.channel_id)
+                discord.TextChannel | None, self.bot.get_channel(self.channel_id)
             )
             assert channel is not None
 
@@ -366,18 +370,18 @@ class KeepChannelAlive(commands.Cog):
                 color=discord.Color.orange(),
             )
 
-            reminder_embed.add_field(
+            _ = reminder_embed.add_field(
                 name="⏱️ Time Remaining",
                 value=f"{math.trunc(DURATION - elapsed)} seconds",
                 inline=True,
             )
 
-            reminder_embed.add_field(
+            _ = reminder_embed.add_field(
                 name="Progress", value=self.progress(), inline=False
             )
 
-            await channel.send(embed=reminder_embed)
-            self.last_reminder = relevant_reminder[0]
+            _ = await channel.send(embed=reminder_embed)
+            self.last_reminder = int(relevant_reminder[0])
 
         if (datetime.now() - self.last_message).total_seconds() > 60:
             await self.distribute_reward()
@@ -390,7 +394,7 @@ class KeepChannelAlive(commands.Cog):
             return
 
         channel = cast(
-            Optional[discord.TextChannel], self.bot.get_channel(self.channel_id)
+            discord.TextChannel | None, self.bot.get_channel(self.channel_id)
         )
         assert channel is not None
 
@@ -402,18 +406,18 @@ class KeepChannelAlive(commands.Cog):
                 description="No participants joined the message train challenge.",
                 color=discord.Color.light_grey(),
             )
-            await channel.send(embed=no_winner_embed)
+            _ = await channel.send(embed=no_winner_embed)
             return
 
         winner_id = random.choice(participants)
-        winner = await self.bot.fetch_user(winner_id)
-
-        if winner is None:
-            await channel.send(embed=error("No winner could be determined"))
+        try:
+            winner = await self.bot.fetch_user(winner_id)
+        except discord.NotFound:
+            _ = await channel.send(embed=error("No winner could be determined"))
             return
 
         # Create a list of all participants
-        participant_list = []
+        participant_list: list[str] = []
         for user_id, count in self.participants.items():
             if user_id == winner_id:
                 participant_list.append(f"👑 <@{user_id}> - {count} messages")
@@ -429,19 +433,21 @@ class KeepChannelAlive(commands.Cog):
             color=discord.Color.gold(),
         )
 
-        winner_embed.add_field(name="🏆 Winner", value=f"<@{winner.id}>", inline=False)
+        _ = winner_embed.add_field(
+            name="🏆 Winner", value=f"<@{winner.id}>", inline=False
+        )
 
-        winner_embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
+        _ = winner_embed.add_field(name="🎁 Reward", value=self.reward, inline=False)
 
-        winner_embed.add_field(
+        _ = winner_embed.add_field(
             name="👥 Participants", value=participants_text, inline=False
         )
 
         # Add winner's avatar if available
         if winner.avatar:
-            winner_embed.set_thumbnail(url=winner.avatar.url)
+            _ = winner_embed.set_thumbnail(url=winner.avatar.url)
 
-        await channel.send(embed=winner_embed)
+        _ = await channel.send(embed=winner_embed)
 
 
 async def setup(bot: commands.Bot):

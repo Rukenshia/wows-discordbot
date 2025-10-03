@@ -5,10 +5,12 @@ are authorized to do so.
 
 import logging
 
+from discord.ext import commands
+
 logger = logging.getLogger(__name__)
 
 
-async def can_run_bot_commands(ctx):
+async def can_run_bot_commands(ctx: commands.Context[commands.Bot]) -> bool:
     """Check if the user can run bot commands."""
 
     logger.info(
